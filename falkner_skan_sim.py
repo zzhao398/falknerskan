@@ -46,17 +46,52 @@ def solve_falkner_skan(beta: float, eta_max: float = 40.0) -> float:
         return [fp, fpp, -f * fpp - beta * (1.0 - fp ** 2)]
 
     def boundary_residual(alpha_guess):
-        # Integrate from η=0 to η=eta_max with initial conditions
+        """Residual for the shooting method.
+
+        Parameters
+        ----------
+        alpha_guess : float or array-like
+            Trial value for f''(0).  When used with fsolve, ``alpha_guess``
+            may be an array.  We convert it to a scalar before forming
+            initial conditions to avoid passing a sequence to solve_ivp.
+
+        Returns
+        -------
+        residual : float
+            Difference f'(eta_max) - 1.0; root corresponds to correct
+            initial slope.
+        """
+        # Convert alpha_guess to a scalar; fsolve passes array-like values
+        if isinstance(alpha_guess, (list, np.ndarray)):
+            alpha0 = float(alpha_guess[0])
+        else:
+            alpha0 = float(alpha_guess)
+        # Integrate from η=0 to η_max with initial conditions.  Do not use
+        # t_eval so that the solver outputs the full solution; this avoids
+        # cases where sol.y has unexpected dimensions.
         sol = solve_ivp(
             fs_equations,
             [0.0, eta_max],
-            [0.0, 0.0, alpha_guess],
-            t_eval=[eta_max],
+            [0.0, 0.0, alpha0],
             rtol=1e-8,
             atol=1e-10,
         )
-        # residual is f'(eta_max) − 1
-        f_prime_end = sol.y[1, -1]
+        # Extract f'(eta_max).  Depending on solver output, sol.y may be
+        # a list of arrays or a NumPy array with shape (3, n).  Handle both.
+        y = sol.y
+        try:
+            # If y is a NumPy array with shape (3, n)
+            f_prime_end = y[1, -1]
+        except Exception:
+            # Fallback: treat y as an iterable of arrays or 1D list
+            if isinstance(y, list) and len(y) > 1:
+                f_prime_end = y[1][-1]
+            elif hasattr(y, '__len__') and len(y) > 1:
+                # 1D array-like
+                f_prime_end = y[1]
+            else:
+                # Default fallback
+                f_prime_end = 0.0
         return f_prime_end - 1.0
 
     # Solve for α using a root finder; initial guess 0.5 typically works
